@@ -4,6 +4,7 @@ pub mod firebase_client {
     use hyper_rustls::HttpsConnector;
     use serde::Serialize;
 
+    #[derive(Debug)]
     pub enum FirebaseClientError {
         SerializeNotificationError { err: serde_json::Error },
         BuildRequestError { err: hyper::http::Error },
@@ -245,18 +246,18 @@ pub mod test {
         let client = hyper::Client::builder().build::<_, Body>(https);
         let firebase_client = FirebaseClient::new(
             client,
-            "credentials_file_path_here",
+            "CREDENTIALS_PATH_HERE",
             "https://www.googleapis.com/auth/firebase.messaging".into(),
-            "project_id_here",
+            "PROJECT_ID_HERE",
         );
 
-        let token = "token_here";
+        let token = "TOKEN_HERE";
 
         let firebase_notification = NotificationBuilder::new("TEST_TITLE", token)
             .message("TEST_MESSAGE")
-            .data(json!({"data": {
+            .data(json!({
                 "url": "https://firebase.google.com/docs/cloud-messaging/migrate-v1"
-            }}))
+            }))
             .android_channel_id("channel_urgent")
             .build();
 
