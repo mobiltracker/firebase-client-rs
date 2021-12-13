@@ -44,7 +44,7 @@ mod tests {
             )
             .unwrap();
 
-        let response = client.request(request).await?;
+        let _response = client.request(request).await?;
 
         println!("{:?}", client);
 

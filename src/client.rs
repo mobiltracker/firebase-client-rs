@@ -114,8 +114,8 @@ pub mod firebase_client {
         ) -> FirebaseClient {
             let boxed_scope = Box::new(firebase_scope);
             let static_scope: &'static str = Box::leak(boxed_scope);
-            let boxed_firebase = Box::new([static_scope]);
-            let static_box: &'static [&'static str; 1] = Box::leak(boxed_firebase);
+            let boxed_scopes_array = Box::new([static_scope]);
+            let static_box: &'static [&'static str; 1] = Box::leak(boxed_scopes_array);
 
             let credentials = Credentials::from_file(credentials_file_path, static_box);
             let authz_client = Client::new_with(client, credentials);
@@ -159,19 +159,19 @@ pub mod firebase_client {
             mut self,
             notification_as_str: String,
         ) -> Result<(), FirebaseClientError> {
-            let request = Request::builder()
+            let http_result = Request::builder()
                 .method("POST")
                 .uri(self.uri)
                 .body(notification_as_str.into());
 
-            if request.is_err() {
-                let error = request.unwrap_err();
+            if http_result.is_err() {
+                let error = http_result.unwrap_err();
                 return Err(FirebaseClientError::BuildRequestError { err: error });
             }
 
-            let response = self.client.request(request.unwrap()).await;
+            let response_result = self.client.request(http_result.unwrap()).await;
 
-            if let Ok(response) = response {
+            if let Ok(response) = response_result {
                 if response.status() == 200 || response.status() == 204 {
                     Ok(())
                 } else {
@@ -180,7 +180,7 @@ pub mod firebase_client {
                     })
                 }
             } else {
-                let error = response.unwrap_err();
+                let error = response_result.unwrap_err();
                 Err(FirebaseClientError::ClientError { err: error })
             }
         }
@@ -188,16 +188,15 @@ pub mod firebase_client {
             self,
             firebase_payload: FirebasePayload,
         ) -> Result<(), FirebaseClientError> {
-            let serialized_payload: Result<String, serde_json::Error> =
+            let serialized_payload_result: Result<String, serde_json::Error> =
                 serde_json::to_string(&firebase_payload);
 
-            if serialized_payload.is_err() {
-                let error = serialized_payload.unwrap_err();
+            if serialized_payload_result.is_err() {
+                let error = serialized_payload_result.unwrap_err();
                 Err(FirebaseClientError::SerializeNotificationError { err: error })
             } else {
-                return self
-                    .send_notification_serialized(serialized_payload.unwrap())
-                    .await;
+                let serialized_payload = serialized_payload_result.unwrap();
+                return self.send_notification_serialized(serialized_payload).await;
             }
         }
     }
@@ -221,7 +220,7 @@ pub mod test {
             "https://www.googleapis.com/auth/firebase.messaging".into(),
             "project_id_here",
         );
-        let result = firebase_client
+        let _result = firebase_client
             .send_notification_serialized(
                 r#"{
             "message": {
@@ -258,7 +257,7 @@ pub mod test {
             .android_channel_id("channel_urgent")
             .build();
 
-        let result = firebase_client
+        let _result = firebase_client
             .send_notification(firebase_notification)
             .await;
     }
