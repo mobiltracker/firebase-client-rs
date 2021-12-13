@@ -32,7 +32,7 @@ let firebase_notification = NotificationBuilder::new("TEST_TITLE", &test_token)
 send_notification(firebase_notification).await().unwrap();
 ```
 
-And another sending a string directly:
+And another sending a raw string:
 
 ```Rust
 
@@ -49,7 +49,7 @@ let firebase_client =
 
 // Send notification directly
 let _result = firebase_client
-            .send_notification_serialized(
+            .send_notification_raw(
                 json!(
                 {
                   "message":

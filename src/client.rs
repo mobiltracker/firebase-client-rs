@@ -13,16 +13,16 @@ pub mod firebase_client {
     }
 
     impl FirebaseClient {
-        pub fn new(
+        pub fn new<T: AsRef<str>>(
             client: hyper::Client<HttpsConnector<HttpConnector>>,
             credentials: Credentials,
-            project_id: &str,
+            project_id: T,
         ) -> Result<FirebaseClient, FirebaseClientError> {
             let authz_client = Client::new_with(client, credentials);
 
             let uri = Uri::try_from(format!(
                 "https://fcm.googleapis.com/v1/projects/{}/messages:send",
-                project_id
+                project_id.as_ref()
             ))?;
 
             Ok(FirebaseClient {
@@ -31,14 +31,14 @@ pub mod firebase_client {
             })
         }
 
-        pub fn new_default(
+        pub fn new_default<T: AsRef<str>>(
             client: hyper::Client<HttpsConnector<HttpConnector>>,
-            credentials_file_path: &str,
-            project_id: &str,
+            credentials_file_path: T,
+            project_id: T,
         ) -> Result<FirebaseClient, FirebaseClientError> {
             let authz_client = {
                 let credentials = Credentials::from_file(
-                    credentials_file_path,
+                    credentials_file_path.as_ref(),
                     &["https://www.googleapis.com/auth/firebase.messaging"],
                 );
                 Client::new_with(client, credentials)
@@ -46,7 +46,7 @@ pub mod firebase_client {
 
             let uri = Uri::try_from(format!(
                 "https://fcm.googleapis.com/v1/projects/{}/messages:send",
-                project_id
+                project_id.as_ref()
             ))?;
 
             Ok(FirebaseClient {
@@ -55,7 +55,7 @@ pub mod firebase_client {
             })
         }
 
-        pub async fn send_notification_serialized(
+        pub async fn send_notification_raw(
             mut self,
             notification_as_str: String,
         ) -> Result<(), FirebaseClientError> {
@@ -87,7 +87,7 @@ pub mod firebase_client {
         ) -> Result<(), FirebaseClientError> {
             let serialized_payload: String = serde_json::to_string(&firebase_payload)?;
 
-            self.send_notification_serialized(serialized_payload).await
+            self.send_notification_raw(serialized_payload).await
         }
     }
     pub async fn read_response_body(res: Response<Body>) -> Result<String, hyper::Error> {
@@ -118,9 +118,9 @@ pub mod test {
         let https = HttpsConnector::with_native_roots();
         let client = hyper::Client::builder().build::<_, Body>(https);
         let firebase_client =
-            FirebaseClient::new_default(client, &credentials_file_path, &project_id).unwrap();
+            FirebaseClient::new_default(client, credentials_file_path, project_id).unwrap();
         let _result = firebase_client
-            .send_notification_serialized(
+            .send_notification_raw(
                 json!(
                 {
                   "message":

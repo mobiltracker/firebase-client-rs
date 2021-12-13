@@ -87,9 +87,9 @@ impl NotificationBuilder {
         }
     }
 
-    pub fn data(self, data: serde_json::Value) -> Self {
+    pub fn data<T: Serialize>(self, data: T) -> Self {
         Self {
-            data: Some(data),
+            data: Some(serde_json::to_value(data).unwrap()),
             ..self
         }
     }
