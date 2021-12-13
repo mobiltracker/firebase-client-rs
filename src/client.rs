@@ -65,6 +65,7 @@ pub mod firebase_client {
                 notification,
                 android,
                 token: self.token,
+                data: self.data,
             };
             FirebasePayload {
                 message: firebase_notification,
@@ -93,14 +94,16 @@ pub mod firebase_client {
         channel_id: Option<String>,
     }
 
-    #[derive(Serialize, Clone, Debug, Default, Eq, PartialEq, Ord, PartialOrd)]
+    #[derive(Serialize, Clone, Debug, Default)]
     pub struct FirebaseNotification {
         token: String,
         notification: Notification,
         android: AndroidField,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        data: Option<serde_json::Value>,
     }
 
-    #[derive(Serialize, Clone, Debug, Default, Eq, PartialEq, Ord, PartialOrd)]
+    #[derive(Serialize, Clone, Debug, Default)]
     pub struct FirebasePayload {
         message: FirebaseNotification,
     }
