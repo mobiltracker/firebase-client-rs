@@ -1,240 +1,139 @@
 pub mod firebase_client {
     use google_authz::{Client, Credentials};
-    use hyper::{client::HttpConnector, Request, Uri};
+    use hyper::{body, client::HttpConnector, Body, Request, Response, Uri};
     use hyper_rustls::HttpsConnector;
-    use serde::Serialize;
+
+    use crate::{error::FirebaseClientError, notification::FirebasePayload};
 
     #[derive(Debug)]
-    pub enum FirebaseClientError {
-        SerializeNotificationError { err: serde_json::Error },
-        BuildRequestError { err: hyper::http::Error },
-        HttpRequestError { status_code: u16 },
-        ClientError { err: hyper::Error },
-    }
-
-    #[derive(Default)]
-    pub struct NotificationBuilder {
-        token: String,
-        title: String,
-        message: Option<String>,
-        android_channel_id: Option<String>,
-        data: Option<serde_json::Value>,
-    }
-
-    impl NotificationBuilder {
-        pub fn new(title: &str, token: &str) -> Self {
-            Self {
-                title: title.to_string(),
-                token: token.to_string(),
-                ..Default::default()
-            }
-        }
-
-        pub fn message(self, message: &str) -> Self {
-            Self {
-                message: Some(message.to_string()),
-                ..self
-            }
-        }
-
-        pub fn android_channel_id(self, android_channel_id: &str) -> Self {
-            Self {
-                android_channel_id: Some(android_channel_id.to_string()),
-                ..self
-            }
-        }
-
-        pub fn data(self, data: serde_json::Value) -> Self {
-            Self {
-                data: Some(data),
-                ..self
-            }
-        }
-
-        pub fn build(self) -> FirebasePayload {
-            let notification = Notification {
-                title: self.title,
-                body: self.message,
-            };
-            let android = AndroidNotification {
-                channel_id: self.android_channel_id,
-            };
-            let android = AndroidField {
-                notification: android,
-            };
-            let firebase_notification = FirebaseNotification {
-                notification,
-                android,
-                token: self.token,
-                data: self.data,
-            };
-            FirebasePayload {
-                message: firebase_notification,
-            }
-        }
-    }
 
     pub struct FirebaseClient {
         client: Client<HttpsConnector<HttpConnector>>,
         uri: Uri,
     }
 
-    #[derive(Serialize, Clone, Debug, Default, Eq, PartialEq, Ord, PartialOrd)]
-    pub struct Notification {
-        title: String,
-        body: Option<String>,
-    }
-
-    #[derive(Serialize, Clone, Debug, Default, Eq, PartialEq, Ord, PartialOrd)]
-    pub struct AndroidField {
-        notification: AndroidNotification,
-    }
-
-    #[derive(Serialize, Clone, Debug, Default, Eq, PartialEq, Ord, PartialOrd)]
-    pub struct AndroidNotification {
-        channel_id: Option<String>,
-    }
-
-    #[derive(Serialize, Clone, Debug, Default)]
-    pub struct FirebaseNotification {
-        token: String,
-        notification: Notification,
-        android: AndroidField,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        data: Option<serde_json::Value>,
-    }
-
-    #[derive(Serialize, Clone, Debug, Default)]
-    pub struct FirebasePayload {
-        message: FirebaseNotification,
-    }
-
     impl FirebaseClient {
         pub fn new(
             client: hyper::Client<HttpsConnector<HttpConnector>>,
-            credentials_file_path: &str,
-            firebase_scope: String,
+            credentials: Credentials,
             project_id: &str,
-        ) -> FirebaseClient {
-            let boxed_scope = Box::new(firebase_scope);
-            let static_scope: &'static str = Box::leak(boxed_scope);
-            let boxed_scopes_array = Box::new([static_scope]);
-            let static_box: &'static [&'static str; 1] = Box::leak(boxed_scopes_array);
-
-            let credentials = Credentials::from_file(credentials_file_path, static_box);
+        ) -> Result<FirebaseClient, FirebaseClientError> {
             let authz_client = Client::new_with(client, credentials);
 
             let uri = Uri::try_from(format!(
                 "https://fcm.googleapis.com/v1/projects/{}/messages:send",
                 project_id
-            ))
-            .unwrap();
+            ))?;
 
-            FirebaseClient {
+            Ok(FirebaseClient {
                 client: authz_client,
                 uri,
-            }
+            })
         }
 
         pub fn new_default(
             client: hyper::Client<HttpsConnector<HttpConnector>>,
             credentials_file_path: &str,
             project_id: &str,
-        ) -> FirebaseClient {
-            let credentials = Credentials::from_file(
-                credentials_file_path,
-                &["https://www.googleapis.com/auth/firebase.messaging"],
-            );
-            let authz_client = Client::new_with(client, credentials);
+        ) -> Result<FirebaseClient, FirebaseClientError> {
+            let authz_client = {
+                let credentials = Credentials::from_file(
+                    credentials_file_path,
+                    &["https://www.googleapis.com/auth/firebase.messaging"],
+                );
+                Client::new_with(client, credentials)
+            };
 
             let uri = Uri::try_from(format!(
                 "https://fcm.googleapis.com/v1/projects/{}/messages:send",
                 project_id
-            ))
-            .unwrap();
+            ))?;
 
-            FirebaseClient {
+            Ok(FirebaseClient {
                 client: authz_client,
                 uri,
-            }
+            })
         }
 
         pub async fn send_notification_serialized(
             mut self,
             notification_as_str: String,
         ) -> Result<(), FirebaseClientError> {
-            let http_result = Request::builder()
-                .method("POST")
-                .uri(self.uri)
-                .body(notification_as_str.into());
+            let response = {
+                let http_request = Request::builder()
+                    .method("POST")
+                    .uri(self.uri)
+                    .body(notification_as_str.into())?;
+                self.client.request(http_request).await?
+            };
 
-            if http_result.is_err() {
-                let error = http_result.unwrap_err();
-                return Err(FirebaseClientError::BuildRequestError { err: error });
-            }
-
-            let response_result = self.client.request(http_result.unwrap()).await;
-
-            if let Ok(response) = response_result {
-                if response.status() == 200 || response.status() == 204 {
-                    Ok(())
-                } else {
-                    Err(FirebaseClientError::HttpRequestError {
-                        status_code: response.status().as_u16(),
-                    })
-                }
+            if response.status() == 200 || response.status() == 204 {
+                Ok(())
             } else {
-                let error = response_result.unwrap_err();
-                Err(FirebaseClientError::ClientError { err: error })
+                let status_code = response.status();
+                let body_as_str = read_response_body(response)
+                    .await
+                    .map_err(FirebaseClientError::ReadBodyError)?;
+
+                Err(FirebaseClientError::HttpRequestError {
+                    status_code,
+                    body: body_as_str,
+                })
             }
         }
         pub async fn send_notification(
             self,
             firebase_payload: FirebasePayload,
         ) -> Result<(), FirebaseClientError> {
-            let serialized_payload_result: Result<String, serde_json::Error> =
-                serde_json::to_string(&firebase_payload);
+            let serialized_payload: String = serde_json::to_string(&firebase_payload)?;
 
-            if serialized_payload_result.is_err() {
-                let error = serialized_payload_result.unwrap_err();
-                Err(FirebaseClientError::SerializeNotificationError { err: error })
-            } else {
-                let serialized_payload = serialized_payload_result.unwrap();
-                return self.send_notification_serialized(serialized_payload).await;
-            }
+            self.send_notification_serialized(serialized_payload).await
         }
+    }
+    pub async fn read_response_body(res: Response<Body>) -> Result<String, hyper::Error> {
+        let bytes = body::to_bytes(res.into_body()).await?;
+        Ok(String::from_utf8(bytes.to_vec()).expect("response was not valid utf-8"))
     }
 }
 
 #[cfg(test)]
 pub mod test {
+    use dotenv::dotenv;
     use hyper::Body;
     use hyper_rustls::HttpsConnector;
     use serde_json::json;
 
-    use super::firebase_client::{FirebaseClient, NotificationBuilder};
+    use crate::notification::NotificationBuilder;
+
+    use super::firebase_client::FirebaseClient;
 
     #[tokio::test]
     pub async fn test_send_notification_serialized() {
+        dotenv().ok();
+
+        let credentials_file_path = std::env::var("CREDENTIALS_FILE_PATH").unwrap();
+        let project_id = std::env::var("PROJECT_ID").unwrap();
+        let test_token = std::env::var("TEST_TOKEN").unwrap();
+
         let https = HttpsConnector::with_native_roots();
         let client = hyper::Client::builder().build::<_, Body>(https);
-        let firebase_client = FirebaseClient::new(
-            client,
-            "credentials_file_path_here",
-            "https://www.googleapis.com/auth/firebase.messaging".into(),
-            "project_id_here",
-        );
+        let firebase_client =
+            FirebaseClient::new_default(client, &credentials_file_path, &project_id).unwrap();
         let _result = firebase_client
             .send_notification_serialized(
-                r#"{
-            "message": {
-              "token": "TOKEN_HERE",
-              "notification": {
-                "title": "TEST_TITLE",
-                "body": "TEST_MESSAGE"
-              }
-            }
-          }"#
+                json!(
+                {
+                  "message":
+                  {
+                    "token": test_token,
+                    "notification":
+                        {
+                            "title": "TEST_TITLE",
+                            "body": "TEST_MESSAGE"
+                        }
+                  }
+                }
+                      )
                 .to_string(),
             )
             .await;
@@ -242,18 +141,18 @@ pub mod test {
 
     #[tokio::test]
     pub async fn test_send_notification() {
+        dotenv().ok();
+
+        let credentials_file_path = std::env::var("CREDENTIALS_FILE_PATH").unwrap();
+        let project_id = std::env::var("PROJECT_ID").unwrap();
+        let test_token = std::env::var("TEST_TOKEN").unwrap();
+
         let https = HttpsConnector::with_native_roots();
         let client = hyper::Client::builder().build::<_, Body>(https);
-        let firebase_client = FirebaseClient::new(
-            client,
-            "CREDENTIALS_PATH_HERE",
-            "https://www.googleapis.com/auth/firebase.messaging".into(),
-            "PROJECT_ID_HERE",
-        );
+        let firebase_client =
+            FirebaseClient::new_default(client, &credentials_file_path, &project_id).unwrap();
 
-        let token = "TOKEN_HERE";
-
-        let firebase_notification = NotificationBuilder::new("TEST_TITLE", token)
+        let firebase_notification = NotificationBuilder::new("TEST_TITLE", &test_token)
             .message("TEST_MESSAGE")
             .data(json!({
                 "url": "https://firebase.google.com/docs/cloud-messaging/migrate-v1"
@@ -261,8 +160,9 @@ pub mod test {
             .android_channel_id("channel_urgent")
             .build();
 
-        let _result = firebase_client
+        dbg!(firebase_client
             .send_notification(firebase_notification)
-            .await;
+            .await
+            .unwrap());
     }
 }
