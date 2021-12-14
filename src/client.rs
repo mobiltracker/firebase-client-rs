@@ -2,6 +2,7 @@ pub mod firebase_client {
     use google_authz::{Client, Credentials};
     use hyper::{body, client::HttpConnector, Body, Request, Response, Uri};
     use hyper_rustls::HttpsConnector;
+    use std::convert::TryFrom;
 
     use crate::{error::FirebaseClientError, notification::FirebasePayload};
 
