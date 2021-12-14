@@ -1,3 +1,5 @@
+use std::fmt;
+
 use hyper::{http, StatusCode};
 
 #[derive(Debug)]
@@ -34,5 +36,22 @@ impl From<hyper::Error> for FirebaseClientError {
 impl From<serde_json::Error> for FirebaseClientError {
     fn from(err: serde_json::Error) -> Self {
         FirebaseClientError::SerializeNotificationError(err)
+    }
+}
+
+impl fmt::Display for FirebaseClientError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            FirebaseClientError::InvalidUriError(i) => write!(f, "InvalidUriError: {}", i),
+            FirebaseClientError::SerializeNotificationError(err) => {
+                write!(f, "SerializeNotificationError: {}", err)
+            }
+            FirebaseClientError::BuildRequestError(err) => write!(f, "BuildRequestError: {}", err),
+            FirebaseClientError::HttpRequestError { status_code, body } => {
+                write!(f, "HttpRequestError status:{} body:{}", status_code, body)
+            }
+            FirebaseClientError::ClientError(err) => write!(f, "ClientError: {}", err),
+            FirebaseClientError::ReadBodyError(err) => write!(f, "ReadBodyError: {}", err),
+        }
     }
 }
