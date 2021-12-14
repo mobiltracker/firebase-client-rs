@@ -20,7 +20,7 @@ let firebase_client =
     FirebaseClient::new_default(client, &credentials_file_path, &project_id).unwrap();
 
 // Build a notification
-let firebase_notification = NotificationBuilder::new("TEST_TITLE", &test_token)
+let mut firebase_notification = NotificationBuilder::new("TEST_TITLE", &test_token)
     .message("TEST_MESSAGE")
     .data(json!({
         "url": "https://firebase.google.com/docs/cloud-messaging/migrate-v1"
@@ -29,7 +29,7 @@ let firebase_notification = NotificationBuilder::new("TEST_TITLE", &test_token)
     .build();
 
 // Send a notification
-send_notification(firebase_notification).await().unwrap();
+firebase_notification.send_notification(firebase_notification).await().unwrap();
 ```
 
 And another sending a raw string:
@@ -44,7 +44,7 @@ let test_token = std::env::var("TEST_TOKEN").unwrap();
 // Instantiate our client
 let https = HttpsConnector::with_native_roots();
 let client = hyper::Client::builder().build::<_, Body>(https);
-let firebase_client =
+let mut firebase_client =
     FirebaseClient::new_default(client, &credentials_file_path, &project_id).unwrap();
 
 // Send notification directly
