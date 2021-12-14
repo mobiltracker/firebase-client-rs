@@ -1,4 +1,4 @@
-use std::fmt;
+use std::{error, fmt};
 
 use hyper::{http, StatusCode};
 
@@ -55,3 +55,5 @@ impl fmt::Display for FirebaseClientError {
         }
     }
 }
+
+impl error::Error for FirebaseClientError {}
