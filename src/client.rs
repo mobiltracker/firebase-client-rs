@@ -56,13 +56,13 @@ pub mod firebase_client {
         }
 
         pub async fn send_notification_raw(
-            mut self,
+            &mut self,
             notification_as_str: String,
         ) -> Result<(), FirebaseClientError> {
             let response = {
                 let http_request = Request::builder()
                     .method("POST")
-                    .uri(self.uri)
+                    .uri(self.uri.clone())
                     .body(notification_as_str.into())?;
                 self.client.request(http_request).await?
             };
@@ -82,7 +82,7 @@ pub mod firebase_client {
             }
         }
         pub async fn send_notification(
-            self,
+            &mut self,
             firebase_payload: FirebasePayload,
         ) -> Result<(), FirebaseClientError> {
             let serialized_payload: String = serde_json::to_string(&firebase_payload)?;
@@ -117,7 +117,7 @@ pub mod test {
 
         let https = HttpsConnector::with_native_roots();
         let client = hyper::Client::builder().build::<_, Body>(https);
-        let firebase_client =
+        let mut firebase_client =
             FirebaseClient::new_default(client, credentials_file_path, project_id).unwrap();
         let _result = firebase_client
             .send_notification_raw(
@@ -149,7 +149,7 @@ pub mod test {
 
         let https = HttpsConnector::with_native_roots();
         let client = hyper::Client::builder().build::<_, Body>(https);
-        let firebase_client =
+        let mut firebase_client =
             FirebaseClient::new_default(client, &credentials_file_path, &project_id).unwrap();
 
         let firebase_notification = NotificationBuilder::new("TEST_TITLE", &test_token)
