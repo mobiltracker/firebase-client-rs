@@ -7,7 +7,6 @@ A firebase [HTTP v1](https://firebase.googleblog.com/2017/11/whats-new-with-fcm-
 There are two ways to send notifications, one using a notification builder:
 
 ```Rust
-
 // Get env vars from .env file
 let credentials_file_path = std::env::var("CREDENTIALS_FILE_PATH").unwrap();
 let project_id = std::env::var("PROJECT_ID").unwrap();
@@ -29,13 +28,12 @@ let mut firebase_notification = NotificationBuilder::new("TEST_TITLE", &test_tok
     .build();
 
 // Send a notification
-firebase_notification.send_notification(firebase_notification).await().unwrap();
+firebase_notification.send_notification(firebase_notification, None).await().unwrap();
 ```
 
 And another sending a raw string:
 
 ```Rust
-
 // Get env vars from .env file
 let credentials_file_path = std::env::var("CREDENTIALS_FILE_PATH").unwrap();
 let project_id = std::env::var("PROJECT_ID").unwrap();

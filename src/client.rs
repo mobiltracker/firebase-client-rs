@@ -2,7 +2,8 @@ pub mod firebase_client {
     use google_authz::{Client, Credentials};
     use hyper::{body, client::HttpConnector, Body, Request, Response, Uri};
     use hyper_rustls::HttpsConnector;
-    use std::convert::TryFrom;
+    use std::{convert::TryFrom, time::Duration};
+    use tokio::time::sleep;
 
     use crate::{error::FirebaseClientError, notification::FirebasePayload};
 
@@ -85,10 +86,37 @@ pub mod firebase_client {
         pub async fn send_notification(
             &mut self,
             firebase_payload: FirebasePayload,
+            max_retries: Option<u32>,
         ) -> Result<(), FirebaseClientError> {
+            let max_retries = max_retries.unwrap_or(0);
             let serialized_payload: String = serde_json::to_string(&firebase_payload)?;
 
-            self.send_notification_raw(serialized_payload).await
+            for i in 0..max_retries + 1 {
+                match self.send_notification_raw(serialized_payload.clone()).await {
+                    Ok(_) => return Ok(()),
+                    Err(err) => match err {
+                        FirebaseClientError::HttpRequestError { status_code, body } => {
+                            if status_code != 500 {
+                                return Err(FirebaseClientError::HttpRequestError {
+                                    status_code,
+                                    body,
+                                });
+                            } else {
+                                if i == max_retries {
+                                    return Err(FirebaseClientError::HttpRequestError {
+                                        status_code,
+                                        body,
+                                    });
+                                }
+                                sleep(Duration::from_millis(100)).await;
+                            }
+                        }
+                        err => return Err(err),
+                    },
+                }
+            }
+
+            Ok(())
         }
     }
     pub async fn read_response_body(res: Response<Body>) -> Result<String, hyper::Error> {
@@ -162,7 +190,7 @@ pub mod test {
             .build();
 
         dbg!(firebase_client
-            .send_notification(firebase_notification)
+            .send_notification(firebase_notification, None)
             .await
             .unwrap());
     }
