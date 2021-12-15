@@ -2,10 +2,9 @@ pub mod firebase_client {
     use google_authz::{Client, Credentials};
     use hyper::{body, client::HttpConnector, Body, Request, Response, Uri};
     use hyper_rustls::HttpsConnector;
-    use std::{convert::TryFrom, time::Duration};
-    use tokio::time::sleep;
+    use std::convert::TryFrom;
 
-    use crate::{error::FirebaseClientError, notification::FirebasePayload};
+    use crate::{error::FirebaseClientError, notification::FirebasePayload, retry};
 
     #[derive(Debug)]
 
@@ -86,37 +85,27 @@ pub mod firebase_client {
         pub async fn send_notification(
             &mut self,
             firebase_payload: FirebasePayload,
-            max_retries: Option<u32>,
+            max_retries: u64,
+            timeout: Option<u64>,
         ) -> Result<(), FirebaseClientError> {
-            let max_retries = max_retries.unwrap_or(0);
             let serialized_payload: String = serde_json::to_string(&firebase_payload)?;
+            let timeout = timeout.unwrap_or(100);
 
-            for i in 0..max_retries + 1 {
+            retry!(
                 match self.send_notification_raw(serialized_payload.clone()).await {
-                    Ok(_) => return Ok(()),
+                    Ok(_) => Ok(()),
                     Err(err) => match err {
-                        FirebaseClientError::HttpRequestError { status_code, body } => {
-                            if status_code != 500 {
-                                return Err(FirebaseClientError::HttpRequestError {
-                                    status_code,
-                                    body,
-                                });
-                            } else {
-                                if i == max_retries {
-                                    return Err(FirebaseClientError::HttpRequestError {
-                                        status_code,
-                                        body,
-                                    });
-                                }
-                                sleep(Duration::from_millis(100)).await;
-                            }
+                        FirebaseClientError::HttpRequestError { status_code, body }
+                            if status_code == 500 =>
+                        {
+                            Err(FirebaseClientError::HttpRequestError { status_code, body })
                         }
                         err => return Err(err),
                     },
-                }
-            }
-
-            Ok(())
+                },
+                max_retries,
+                timeout
+            )
         }
     }
     pub async fn read_response_body(res: Response<Body>) -> Result<String, hyper::Error> {
