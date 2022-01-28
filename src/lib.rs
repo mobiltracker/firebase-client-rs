@@ -62,28 +62,3 @@ mod tests {
         Ok(())
     }
 }
-
-#[macro_export]
-macro_rules! retry {
-    ($fn: expr, $count: expr, $timeout: expr) => {{
-        let mut result = $fn;
-        for n in 1..=($count as u64) {
-            result = match result {
-                Ok(res) => Ok(res),
-                Err(err) if n >= $count => Err(err),
-                Err(_) => {
-                    tokio::time::sleep(std::time::Duration::from_millis($timeout)).await;
-                    result = $fn;
-                    continue;
-                }
-            };
-        }
-        result
-    }};
-    ($fn: expr, $count: literal) => {
-        retry!($fn, $count, 500_u64)
-    };
-    ($fn: expr) => {
-        retry!($fn, 3)
-    };
-}

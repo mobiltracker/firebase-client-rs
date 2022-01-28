@@ -2,9 +2,11 @@ pub mod firebase_client {
     use google_authz::{Client, Credentials};
     use hyper::{body, client::HttpConnector, Body, Request, Response, Uri};
     use hyper_rustls::HttpsConnector;
-    use std::convert::TryFrom;
+    use std::{convert::TryFrom, ops::Deref, sync::Arc};
+    use tokio::sync::Mutex;
+    use tokio_retry::{strategy::ExponentialBackoff, RetryIf};
 
-    use crate::{error::FirebaseClientError, notification::FirebasePayload, retry};
+    use crate::{error::FirebaseClientError, notification::FirebasePayload};
 
     #[derive(Debug)]
 
@@ -85,29 +87,44 @@ pub mod firebase_client {
         pub async fn send_notification(
             &mut self,
             firebase_payload: FirebasePayload,
-            max_retries: u64,
-            timeout: Option<u64>,
         ) -> Result<(), FirebaseClientError> {
             let serialized_payload: String = serde_json::to_string(&firebase_payload)?;
-            let timeout = timeout.unwrap_or(100);
 
-            retry!(
-                match self.send_notification_raw(serialized_payload.clone()).await {
-                    Ok(_) => Ok(()),
-                    Err(err) => match err {
-                        FirebaseClientError::HttpRequestError { status_code, body }
-                            if status_code == 500 =>
-                        {
-                            Err(FirebaseClientError::HttpRequestError { status_code, body })
-                        }
-                        err => return Err(err),
-                    },
+            self.send_notification_raw(serialized_payload).await
+        }
+
+        pub async fn send_with_retry<F: FnMut(&FirebaseClientError) -> bool>(
+            &mut self,
+            firebase_payload: FirebasePayload,
+            max_retries: usize,
+            condition: F,
+        ) -> Result<(), FirebaseClientError> {
+            let serialized_payload: String = serde_json::to_string(&firebase_payload)?;
+
+            let retry_strategy = ExponentialBackoff::from_millis(10)
+                .map(tokio_retry::strategy::jitter)
+                .take(max_retries); // limit to 3 retries
+
+            let payload = Arc::new(serialized_payload.clone());
+
+            let client = Arc::new(Mutex::new(self));
+
+            let result: Result<(), FirebaseClientError> = RetryIf::spawn(
+                retry_strategy,
+                || async {
+                    let mut client = client.lock().await;
+                    client
+                        .send_notification_raw(payload.deref().to_string())
+                        .await
                 },
-                max_retries,
-                timeout
+                condition,
             )
+            .await;
+
+            result
         }
     }
+
     pub async fn read_response_body(res: Response<Body>) -> Result<String, hyper::Error> {
         let bytes = body::to_bytes(res.into_body()).await?;
         Ok(String::from_utf8(bytes.to_vec()).expect("response was not valid utf-8"))
@@ -178,9 +195,9 @@ pub mod test {
             .android_channel_id("channel_urgent")
             .build();
 
-        dbg!(firebase_client
-            .send_notification(firebase_notification, None)
+        firebase_client
+            .send_notification(firebase_notification)
             .await
-            .unwrap());
+            .unwrap();
     }
 }
