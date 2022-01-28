@@ -93,15 +93,16 @@ pub mod firebase_client {
             self.send_notification_raw(serialized_payload).await
         }
 
-        pub async fn send_with_retry<F: FnMut(&FirebaseClientError) -> bool>(
+        pub async fn send_notification_with_retry<F: FnMut(&FirebaseClientError) -> bool>(
             &mut self,
             firebase_payload: FirebasePayload,
             max_retries: usize,
             condition: F,
+            backoff_base_ms: u64,
         ) -> Result<(), FirebaseClientError> {
             let serialized_payload: String = serde_json::to_string(&firebase_payload)?;
 
-            let retry_strategy = ExponentialBackoff::from_millis(10)
+            let retry_strategy = ExponentialBackoff::from_millis(backoff_base_ms)
                 .map(tokio_retry::strategy::jitter)
                 .take(max_retries); // limit to 3 retries
 
